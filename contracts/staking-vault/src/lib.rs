@@ -32,7 +32,7 @@ pub struct StakingVault;
 
 #[contractimpl]
 impl StakingVault {
-    pub fn __constructor(e: Env, token_wasm_hash: BytesN<32>, base_token: Address, admin: Address) {
+    pub fn init(e: Env, token_wasm_hash: BytesN<32>, base_token: Address, admin: Address) {
         if e.storage().instance().has(&VaultKey::IsInitialized) {
             panic!("Already initialized");
         }
@@ -107,5 +107,4 @@ impl StakingVault {
     }
 }
 
-#[cfg(test)]
 mod test;
