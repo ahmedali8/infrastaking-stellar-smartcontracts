@@ -128,4 +128,3 @@ Beyond smart contracts, InfraStaking includes a fully automated backend for inst
 - **Secure Remote Access:** Stake via web terminal with MFA and audit logs
 - **Zero DevOps Needed:** No smart contract knowledge required
 - **Dynamic Optimization:** Reallocates vTokens based on protocol yield rates
-- **Compliance Ready:** Supports eERC and Avacy standards for privacy and regulation
