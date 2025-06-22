@@ -2,11 +2,7 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
-    Address, BytesN, Env, IntoVal, Symbol,
-};
+use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, IntoVal, Symbol};
 
 // Create a client wrapper for StakingVault
 pub struct StakingVaultClient<'a> {
@@ -164,7 +160,7 @@ fn test_staking_vault_complete_flow() {
     assert_eq!(vault.get_total_supply(), 400);
 
     // Test complete withdrawal by user2
-    e.budget().reset_unlimited();
+    e.cost_estimate().budget().reset_unlimited();
     vault.withdraw(&user2, &300);
 
     // Verify final balances
