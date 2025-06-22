@@ -8,6 +8,58 @@ use soroban_sdk::{
     Address, BytesN, Env, IntoVal, Symbol,
 };
 
+// Create a client wrapper for StakingVault
+pub struct StakingVaultClient<'a> {
+    env: &'a Env,
+    address: Address,
+}
+
+impl<'a> StakingVaultClient<'a> {
+    pub fn new(env: &'a Env, address: &Address) -> Self {
+        Self {
+            env,
+            address: address.clone(),
+        }
+    }
+
+    pub fn init(&self, token_wasm_hash: &BytesN<32>, base_token: &Address, admin: &Address) {
+        self.env.invoke_contract::<()>(
+            &self.address,
+            &Symbol::new(self.env, "init"),
+            soroban_sdk::vec![
+                self.env,
+                token_wasm_hash.into_val(self.env),
+                base_token.into_val(self.env),
+                admin.into_val(self.env)
+            ],
+        )
+    }
+
+    pub fn deposit(&self, from: &Address, amount: &i128) {
+        self.env.invoke_contract::<()>(
+            &self.address,
+            &Symbol::new(self.env, "deposit"),
+            soroban_sdk::vec![self.env, from.into_val(self.env), amount.into_val(self.env)],
+        )
+    }
+
+    pub fn get_vault_token(&self) -> Address {
+        self.env.invoke_contract(
+            &self.address,
+            &Symbol::new(self.env, "get_vault_token"),
+            soroban_sdk::vec![self.env],
+        )
+    }
+
+    pub fn get_total_supply(&self) -> i128 {
+        self.env.invoke_contract(
+            &self.address,
+            &Symbol::new(self.env, "get_total_supply"),
+            soroban_sdk::vec![self.env],
+        )
+    }
+}
+
 fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
     token::Client::new(
         e,
@@ -17,26 +69,29 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
 }
 
 fn create_staking_vault_contract<'a>(
-    e: &Env,
+    e: &'a Env,
     token_wasm_hash: &BytesN<32>,
     base_token: &Address,
     admin: &Address,
-) -> Address {
+) -> StakingVaultClient<'a> {
     let vault_address = e.register(crate::StakingVault {}, ());
+    let vault = StakingVaultClient::new(e, &vault_address);
+    vault.init(token_wasm_hash, base_token, admin);
+    vault
 
-    // Initialize the contract after registration using invoke_contract
-    e.invoke_contract::<()>(
-        &vault_address,
-        &soroban_sdk::symbol_short!("init"),
-        soroban_sdk::vec![
-            e,
-            token_wasm_hash.into_val(e),
-            base_token.into_val(e),
-            admin.into_val(e)
-        ],
-    );
+    // // Initialize the contract after registration using invoke_contract
+    // e.invoke_contract::<()>(
+    //     &vault_address,
+    //     &soroban_sdk::symbol_short!("init"),
+    //     soroban_sdk::vec![
+    //         e,
+    //         token_wasm_hash.into_val(e),
+    //         base_token.into_val(e),
+    //         admin.into_val(e)
+    //     ],
+    // );
 
-    vault_address
+    // vault_address
 }
 
 fn install_token_wasm(e: &Env) -> BytesN<32> {
@@ -61,12 +116,7 @@ fn test_staking_vault_complete_flow() {
         create_staking_vault_contract(&e, &install_token_wasm(&e), &base_token.address, &admin);
 
     // Get vault token client
-    let vault_token_address: Address = e.invoke_contract(
-        &vault,
-        &Symbol::new(&e, "get_vault_token"),
-        soroban_sdk::vec![&e],
-    );
-    let vault_token = token::Client::new(&e, &vault_token_address);
+    let vault_token = token::Client::new(&e, &vault.get_vault_token());
 
     // Mint base tokens to users
     base_token.mint(&user1, &1000);
@@ -77,19 +127,10 @@ fn test_staking_vault_complete_flow() {
     assert_eq!(base_token.balance(&user2), 500);
     assert_eq!(vault_token.balance(&user1), 0);
     assert_eq!(vault_token.balance(&user2), 0);
-    let total_supply: i128 = e.invoke_contract(
-        &vault,
-        &Symbol::new(&e, "get_total_supply"),
-        soroban_sdk::vec![&e],
-    );
-    assert_eq!(total_supply, 0);
+    assert_eq!(vault.get_total_supply(), 0);
 
     // Test first deposit by user1
-    e.invoke_contract::<()>(
-        &vault,
-        &Symbol::new(&e, "deposit"),
-        soroban_sdk::vec![&e, user1.into_val(&e), 200i128.into_val(&e)],
-    );
+    vault.deposit(&user1, &200);
 }
 
 // // Verify auth for deposit
