@@ -13,6 +13,7 @@ pub enum VaultKey {
     VaultToken = 1,
     Admin = 2,
     TotalVaultSupply = 3,
+    IsInitialized = 4,
 }
 
 impl TryFromVal<Env, VaultKey> for Val {
@@ -31,7 +32,11 @@ pub struct StakingVault;
 
 #[contractimpl]
 impl StakingVault {
-    pub fn initialize(e: Env, token_wasm_hash: BytesN<32>, base_token: Address, admin: Address) {
+    pub fn __constructor(e: Env, token_wasm_hash: BytesN<32>, base_token: Address, admin: Address) {
+        if e.storage().instance().has(&VaultKey::IsInitialized) {
+            panic!("Already initialized");
+        }
+
         let salt = token::get_salt(&e, &base_token);
         let vtoken = token::create_vault_token(&e, token_wasm_hash, &admin, &salt);
 
@@ -43,6 +48,7 @@ impl StakingVault {
         e.storage()
             .instance()
             .set(&VaultKey::TotalVaultSupply, &0i128);
+        e.storage().instance().set(&VaultKey::IsInitialized, &true);
     }
 
     pub fn deposit(e: Env, from: Address, amount: i128) {
