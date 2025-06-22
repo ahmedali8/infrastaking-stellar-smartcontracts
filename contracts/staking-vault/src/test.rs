@@ -43,10 +43,26 @@ impl<'a> StakingVaultClient<'a> {
         )
     }
 
+    pub fn withdraw(&self, to: &Address, amount: &i128) {
+        self.env.invoke_contract::<()>(
+            &self.address,
+            &Symbol::new(self.env, "withdraw"),
+            soroban_sdk::vec![self.env, to.into_val(self.env), amount.into_val(self.env)],
+        )
+    }
+
     pub fn get_vault_token(&self) -> Address {
         self.env.invoke_contract(
             &self.address,
             &Symbol::new(self.env, "get_vault_token"),
+            soroban_sdk::vec![self.env],
+        )
+    }
+
+    pub fn get_base_token(&self) -> Address {
+        self.env.invoke_contract(
+            &self.address,
+            &Symbol::new(self.env, "get_base_token"),
             soroban_sdk::vec![self.env],
         )
     }
@@ -57,6 +73,10 @@ impl<'a> StakingVaultClient<'a> {
             &Symbol::new(self.env, "get_total_supply"),
             soroban_sdk::vec![self.env],
         )
+    }
+
+    pub fn address(&self) -> &Address {
+        &self.address
     }
 }
 
@@ -78,20 +98,6 @@ fn create_staking_vault_contract<'a>(
     let vault = StakingVaultClient::new(e, &vault_address);
     vault.init(token_wasm_hash, base_token, admin);
     vault
-
-    // // Initialize the contract after registration using invoke_contract
-    // e.invoke_contract::<()>(
-    //     &vault_address,
-    //     &soroban_sdk::symbol_short!("init"),
-    //     soroban_sdk::vec![
-    //         e,
-    //         token_wasm_hash.into_val(e),
-    //         base_token.into_val(e),
-    //         admin.into_val(e)
-    //     ],
-    // );
-
-    // vault_address
 }
 
 fn install_token_wasm(e: &Env) -> BytesN<32> {
@@ -116,7 +122,8 @@ fn test_staking_vault_complete_flow() {
         create_staking_vault_contract(&e, &install_token_wasm(&e), &base_token.address, &admin);
 
     // Get vault token client
-    let vault_token = token::Client::new(&e, &vault.get_vault_token());
+    let vault_token_address = vault.get_vault_token();
+    let vault_token = token::Client::new(&e, &vault_token_address);
 
     // Mint base tokens to users
     base_token.mint(&user1, &1000);
@@ -131,99 +138,56 @@ fn test_staking_vault_complete_flow() {
 
     // Test first deposit by user1
     vault.deposit(&user1, &200);
+
+    // Verify balances after first deposit
+    assert_eq!(base_token.balance(&user1), 800);
+    assert_eq!(base_token.balance(vault.address()), 200);
+    assert_eq!(vault_token.balance(&user1), 200);
+    assert_eq!(vault.get_total_supply(), 200);
+
+    // Test second deposit by user2
+    vault.deposit(&user2, &300);
+
+    // Verify balances after second deposit
+    assert_eq!(base_token.balance(&user2), 200);
+    assert_eq!(base_token.balance(&vault.address), 500);
+    assert_eq!(vault_token.balance(&user2), 300);
+    assert_eq!(vault.get_total_supply(), 500);
+
+    // Test partial withdrawal by user1
+    vault.withdraw(&user1, &100);
+
+    // Verify balances after withdrawal
+    assert_eq!(base_token.balance(&user1), 900);
+    assert_eq!(base_token.balance(&vault.address), 400);
+    assert_eq!(vault_token.balance(&user1), 100);
+    assert_eq!(vault.get_total_supply(), 400);
+
+    // Test complete withdrawal by user2
+    e.budget().reset_unlimited();
+    vault.withdraw(&user2, &300);
+
+    // Verify final balances
+    assert_eq!(base_token.balance(&user2), 500);
+    assert_eq!(base_token.balance(&vault.address), 100);
+    assert_eq!(vault_token.balance(&user2), 0);
+    assert_eq!(vault.get_total_supply(), 100);
+
+    // Test complete withdrawal by user1 (remaining balance)
+    vault.withdraw(&user1, &100);
+
+    // Verify all balances are back to expected state
+    assert_eq!(base_token.balance(&user1), 1000);
+    assert_eq!(base_token.balance(&user2), 500);
+    assert_eq!(base_token.balance(&vault.address), 0);
+    assert_eq!(vault_token.balance(&user1), 0);
+    assert_eq!(vault_token.balance(&user2), 0);
+    assert_eq!(vault.get_total_supply(), 0);
+
+    // Verify contract addresses
+    assert_eq!(vault.get_base_token(), base_token.address);
+    assert_eq!(vault.get_vault_token(), vault_token_address);
+
+    // Verify the vault token is valid and callable
+    assert!(vault_token.balance(&user1) >= 0); // This proves the address is valid
 }
-
-// // Verify auth for deposit
-// assert_eq!(
-//     e.auths(),
-//     std::vec![(
-//         user1.clone(),
-//         AuthorizedInvocation {
-//             function: AuthorizedFunction::Contract((
-//                 vault.address.clone(),
-//                 symbol_short!("deposit"),
-//                 (&user1, 200_i128).into_val(&e)
-//             )),
-//             sub_invocations: std::vec![AuthorizedInvocation {
-//                 function: AuthorizedFunction::Contract((
-//                     base_token.address.clone(),
-//                     symbol_short!("transfer"),
-//                     (&user1, &vault.address, 200_i128).into_val(&e)
-//                 )),
-//                 sub_invocations: std::vec![]
-//             }]
-//         }
-//     )]
-// );
-
-// // Verify balances after first deposit
-// assert_eq!(base_token.balance(&user1), 800);
-// assert_eq!(base_token.balance(&vault.address), 200);
-// assert_eq!(vault_token.balance(&user1), 200);
-// assert_eq!(vault.get_total_supply(), 200);
-
-// // Test second deposit by user2
-// vault.deposit(&user2, &300);
-
-// // Verify balances after second deposit
-// assert_eq!(base_token.balance(&user2), 200);
-// assert_eq!(base_token.balance(&vault.address), 500);
-// assert_eq!(vault_token.balance(&user2), 300);
-// assert_eq!(vault.get_total_supply(), 500);
-
-// // Test partial withdrawal by user1
-// vault.withdraw(&user1, &100);
-
-// // Verify auth for withdrawal
-// assert_eq!(
-//     e.auths(),
-//     std::vec![(
-//         user1.clone(),
-//         AuthorizedInvocation {
-//             function: AuthorizedFunction::Contract((
-//                 vault.address.clone(),
-//                 symbol_short!("withdraw"),
-//                 (&user1, 100_i128).into_val(&e)
-//             )),
-//             sub_invocations: std::vec![AuthorizedInvocation {
-//                 function: AuthorizedFunction::Contract((
-//                     vault_token.address.clone(),
-//                     symbol_short!("burn"),
-//                     (&user1, 100_i128).into_val(&e)
-//                 )),
-//                 sub_invocations: std::vec![]
-//             }]
-//         }
-//     )]
-// );
-
-// // Verify balances after withdrawal
-// assert_eq!(base_token.balance(&user1), 900);
-// assert_eq!(base_token.balance(&vault.address), 400);
-// assert_eq!(vault_token.balance(&user1), 100);
-// assert_eq!(vault.get_total_supply(), 400);
-
-// // Test complete withdrawal by user2
-// e.budget().reset_unlimited();
-// vault.withdraw(&user2, &300);
-
-// // Verify final balances
-// assert_eq!(base_token.balance(&user2), 500);
-// assert_eq!(base_token.balance(&vault.address), 100);
-// assert_eq!(vault_token.balance(&user2), 0);
-// assert_eq!(vault.get_total_supply(), 100);
-
-// // Test complete withdrawal by user1 (remaining balance)
-// vault.withdraw(&user1, &100);
-
-// // Verify all balances are back to expected state
-// assert_eq!(base_token.balance(&user1), 1000);
-// assert_eq!(base_token.balance(&user2), 500);
-// assert_eq!(base_token.balance(&vault.address), 0);
-// assert_eq!(vault_token.balance(&user1), 0);
-// assert_eq!(vault_token.balance(&user2), 0);
-// assert_eq!(vault.get_total_supply(), 0);
-
-// // Verify contract addresses
-// assert_eq!(vault.get_base_token(), base_token.address);
-// assert_eq!(vault.get_vault_token(), vault_token.address);
